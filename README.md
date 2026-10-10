@@ -20,3 +20,6 @@ Week 1 of a 4-week learn-by-building AI PM program. Currently: problem definitio
 ## Docs
 
 - `docs/PR-FAQ.md` — Amazon-style PR/FAQ: problem, solution, metrics, explicit non-goals
+- `docs/MVP-SPEC.md` — Week 2 MVP spec: core-loop user stories, data model, AI components, demo script
+- `docs/feature-breakdown.md` — feature musings merged from the Google Doc: trust tiers, property profiles, house rules, legal/security, data model, mapped against current docs
+- `docs/user-research-outreach.md` — WhatsApp script for the 3 friend interviews
