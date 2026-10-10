@@ -34,7 +34,7 @@ A working prototype that walks the full core loop: host posts away dates → gue
 Vouched 2nd-degree guests, micro-insurance, guest-posted travel plans, cleaning booking, multi-property support, public listings of any kind.
 
 ## Acceptance criteria (the demo script)
-1. Hari posts "away Nov 20–Dec 5" with a $180/night rate in under a minute.
+1. Hari posts "away Nov 20–Dec 5"
 2. A friend requests 4 nights, accepts the Honor Code.
 3. Hari approves; the AI interview produces a manual with the visitor-kit checklist.
 4. The friend asks 5 questions (wifi, parking, checkout time, "can I bring my dog?" — unanswerable, must deflect); 4 answered from the manual, 1 clean "I don't know."
