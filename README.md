@@ -23,3 +23,13 @@ Week 1 of a 4-week learn-by-building AI PM program. Currently: problem definitio
 - `docs/MVP-SPEC.md` — Week 2 MVP spec: core-loop user stories, data model, AI components, demo script
 - `docs/feature-breakdown.md` — feature musings merged from the Google Doc: trust tiers, property profiles, house rules, legal/security, data model, mapped against current docs
 - `docs/user-research-outreach.md` — WhatsApp script for the 3 friend interviews
+
+## Prototype
+
+A mobile-friendly static web app implementing the MVP spec lives at the repo root: `index.html` + `styles.css` + `app.js`. No backend — state persists in `localStorage`, and the manual interview + concierge are simulated per the spec (the concierge answers only from the manual text, so the anti-hallucination rule holds by construction).
+
+Run it locally: open `index.html`, or `python3 -m http.server` in the repo root and visit the printed URL.
+
+Tests: `npm install --no-save jsdom && node test/acceptance.test.js && node test/edge.test.js` — the acceptance suite walks the full demo script from `docs/MVP-SPEC.md` (14 checks, all green).
+
+Deploy: any static host works — Vercel, Netlify, or Cloudflare Pages pointed at the repo root. Note: the repo is private, so GitHub Pages would need a paid plan; the three above serve private repos on their free tiers.
