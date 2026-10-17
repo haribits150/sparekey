@@ -46,9 +46,10 @@ function migrate() {
   }
 }
 function resetDemo() {
-  const user = db.currentUser;
+  const user = db.currentUser, welcomed = db.welcomed;
   db = JSON.parse(JSON.stringify(SEED));
   db.currentUser = user;
+  db.welcomed = welcomed;
   save();
 }
 function uid(prefix) { return prefix + '_' + (db.seq++) + '_' + Date.now().toString(36); }
@@ -140,6 +141,20 @@ function listingCard(l) {
 }
 
 /* ---------- Screens ---------- */
+function screenWelcome() {
+  return '<div class="hero">' +
+      '<div class="hero-label">Welcome to SpareKey</div>' +
+      '<div class="hero-value" style="font-size:28px">Lend your empty home to trusted friends</div>' +
+      '<div class="hero-sub">No strangers. No payments. No hotels.</div></div>' +
+    '<h2>How it works</h2><div class="card">' +
+      '<p><strong>1. Post your away dates.</strong> Only your circle can see the listing.</p>' +
+      '<p><strong>2. Friends request, you approve.</strong> Every guest accepts the Honor Code first.</p>' +
+      '<p><strong>3. AI drafts your house manual</strong> from a 2-minute interview — rules, wifi, appliances, the visitor-kit checklist. You review before it goes out.</p>' +
+      '<p><strong>4. The concierge answers guest questions</strong> from the manual (never guesses), and checkout adds the nights to your scoreboard.</p></div>' +
+    '<div class="card"><p class="small" style="margin:0">One rule for everyone: <strong>treat this home like your own.</strong></p></div>' +
+    '<button class="btn btn-primary btn-block" data-action="welcome-done" style="margin-top:12px">Get started</button>';
+}
+
 function screenHome() {
   const nights = db.score.totalNights != null ? db.score.totalNights
     : db.score.entries.reduce((a, e) => a + e.nights, 0);
@@ -289,22 +304,24 @@ function screenInterview(stayId) {
   });
   html += '<div class="msg ai">' + esc(q.q) + '</div></div>';
   html += '<form data-form="interview-answer"><div class="field"><label for="ia">Your answer</label>' +
-    '<textarea id="ia" name="answer" required>' + esc(prior) + '</textarea></div>' +
+    '<textarea id="ia" name="answer" placeholder="Skip anything that doesn\u2019t apply">' + esc(prior) + '</textarea></div>' +
     '<div class="btn-row"><button class="btn btn-secondary" type="button" data-action="interview-back"' + (st.idx === 0 ? ' disabled' : '') + '>Back</button>' +
     '<button class="btn btn-primary" type="submit">' + (st.idx === INTERVIEW_QS.length - 1 ? 'Finish' : 'Next') + '</button></div></form>';
   return html;
 }
 
 function buildManualFromInterview(s, answers) {
-  const parkingLine = answers.parking ? '\n\n**Parking & entry:** ' + answers.parking : '';
+  const a = {};
+  Object.keys(answers || {}).forEach(k => { a[k] = (answers[k] || '').trim(); });
+  const parkingLine = a.parking ? '\n\n**Parking & entry:** ' + a.parking : '';
   return {
     id: uid('manual'), stayId: s.id, status: 'draft',
     sections: {
-      rules:       { title: 'House rules',       body: (answers.rules || 'Be a good guest.') + parkingLine },
-      wifi:        { title: 'Wifi',              body: answers.wifi || '' },
-      appliances:  { title: 'Kitchen & appliances', body: answers.appliances || '' },
-      emergency:   { title: 'Emergency info',    body: answers.emergency || '' },
-      extended_stay:{ title: 'Extended stays',   body: answers.extended || '' },
+      rules:       { title: 'House rules',       body: (a.rules || 'Be a good guest.') + parkingLine },
+      wifi:        { title: 'Wifi',              body: a.wifi || '' },
+      appliances:  { title: 'Kitchen & appliances', body: a.appliances || '' },
+      emergency:   { title: 'Emergency info',    body: a.emergency || '' },
+      extended_stay:{ title: 'Extended stays',   body: a.extended || '' },
       visitor_kit: { title: 'Visitor kit', items: ['Fresh towels', 'Fresh bedsheets', 'Pillows', 'Napkins / tissues', 'Toilet paper', 'Hand soap'] },
       checkout:    { title: 'Checkout checklist', items: ['Strip the bed linens', 'Take out the trash', 'Run the dishwasher if it’s full', 'Lock up and return the key as agreed'] },
     },
@@ -378,12 +395,15 @@ const CONCIERGE_INDEX = [
 
 function conciergeAnswer(manual, query) {
   const q = ' ' + query.toLowerCase() + ' ';
+  const wordRe = kw => new RegExp('\\b' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
   let best = null, bestScore = 0;
   CONCIERGE_INDEX.forEach(entry => {
     const sec = manual.sections[entry.key];
     if (!sec) return;
     let score = 0;
-    entry.keywords.forEach(kw => { if (q.includes(kw)) score += kw.length > 4 ? 2 : 1; });
+    entry.keywords.forEach(kw => {
+      if (wordRe(kw).test(q)) score += kw.indexOf(' ') >= 0 ? 4 : (kw.length > 4 ? 2 : 1);
+    });
     if (score > bestScore) { bestScore = score; best = entry.key; }
   });
   if (!best || bestScore === 0) return null;
@@ -583,6 +603,7 @@ const Actions = {
   reset() {
     if (confirm('Reset all demo data?')) { resetDemo(); toast('Demo reset'); nav('#/home'); }
   },
+  'welcome-done'() { db.welcomed = true; save(); nav('#/home'); render(); },
 };
 
 /* ---------- Forms ---------- */
@@ -613,7 +634,6 @@ function handleForm(form) {
 
   if (kind === 'interview-answer') {
     const answer = val('answer');
-    if (!answer) { toast('Give it your best shot — your guest will thank you'); return; }
     const q = INTERVIEW_QS[interviewState.idx];
     interviewState.answers[q.key] = answer;
     interviewState.idx++;
@@ -669,8 +689,13 @@ function handleForm(form) {
 /* ---------- Render ---------- */
 function render() {
   renderChrome();
-  const r = route();
   const view = $('#view');
+  if (!db.welcomed) {
+    view.innerHTML = screenWelcome();
+    window.scrollTo(0, 0);
+    return;
+  }
+  const r = route();
   let html = '';
   try {
     switch (r.name) {

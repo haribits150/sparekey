@@ -57,6 +57,10 @@ function checkAllBoxes() {
 
 (async () => {
   await tick();
+  // first-run welcome → dismiss to reach the app
+  check('0. welcome screen shows', /How it works/.test(text()));
+  await clickAction('welcome-done');
+  check('0b. welcome dismissed', /Your circle/.test(text()));
 
   // STEP 1: Hari posts listing
   setWho('hari');
