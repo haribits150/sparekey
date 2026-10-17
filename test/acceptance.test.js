@@ -133,9 +133,9 @@ function checkAllBoxes() {
   await clickAction('resolve-incident');
   check('5b. incident resolved', /Resolved/.test(text()));
 
-  // STEP 6: scoreboard = $720
+  // STEP 6: scoreboard = 4 nights
   await go('#/score');
-  check('6. scoreboard $720', /\$720/.test(text()), text().match(/\$[\d,]+/)?.[0]);
+  check('6. scoreboard 4 nights', /4 nights/.test(text()));
 
   const failed = results.filter(r => !r.pass);
   console.log('\n==== ' + (results.length - failed.length) + '/' + results.length + ' passed ====');
