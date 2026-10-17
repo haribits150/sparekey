@@ -21,7 +21,7 @@
       </span>
       <span class="brand-name">SpareKey</span>
     </div>
-    <label class="whoami">
+    <label class="whoami" id="whoamiWrap">
       <span class="whoami-label">Viewing as</span>
       <select id="whoami" aria-label="Viewing as"></select>
     </label>
@@ -51,6 +51,10 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+<!-- Optional backend: copy firebase-config.example.js to firebase-config.js and
+     fill in your Firebase web config to enable Google login + shared circles.
+     Absent (404) = demo mode: localStorage + fictional circle. -->
+<script src="firebase-config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
