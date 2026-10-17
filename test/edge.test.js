@@ -73,7 +73,7 @@ async function clickAction(a) { d.querySelector('[data-action="' + a + '"]').dis
   await go('#/home');
   check('E6. reset clears listings', /No open listings yet/.test(text()));
   await go('#/score');
-  check('E6b. scoreboard zeroed', /\$0/.test(text()));
+  check('E6b. scoreboard zeroed', /Total room nights hosted0/.test(text()));
 
   console.log('edge cases done');
 })().catch(e => { console.error('CRASH:', e); process.exit(2); });
