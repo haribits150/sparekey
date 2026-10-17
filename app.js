@@ -296,7 +296,7 @@ function buildManualFromInterview(s, answers) {
       appliances:  { title: 'Kitchen & appliances', body: answers.appliances || '' },
       emergency:   { title: 'Emergency info',    body: answers.emergency || '' },
       extended_stay:{ title: 'Extended stays',   body: answers.extended || '' },
-      visitor_kit: { title: 'Visitor kit', items: ['Fresh towels', 'Fresh bedsheets', 'Pillows', 'Napkins'] },
+      visitor_kit: { title: 'Visitor kit', items: ['Fresh towels', 'Fresh bedsheets', 'Pillows', 'Napkins / tissues', 'Toilet paper', 'Hand soap'] },
       checkout:    { title: 'Checkout checklist', items: ['Strip the bed linens', 'Take out the trash', 'Run the dishwasher if it’s full', 'Lock up and return the key as agreed'] },
     },
     guestbook: [],
