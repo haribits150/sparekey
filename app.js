@@ -1,9 +1,14 @@
-/* SpareKey MVP — static single-page app. No backend; state in localStorage.
-   Modules: store, router, screens (home/listings/requests/stays/manual/concierge/checkout/score). */
+/* SpareKey MVP — static single-page app.
+   Demo mode: state in localStorage, fictional circle.
+   Firebase mode (window.SPAREKEY_FIREBASE set via firebase-config.js):
+   Google login + Realtime Database, shared circles via invite codes,
+   realtime sync across devices.
+   Modules: sync, auth, router, screens (...). */
 'use strict';
 
-/* ---------- Store ---------- */
+/* ---------- Sync (persistence + realtime) ---------- */
 const DB_KEY = 'sparekey.v1';
+const DEVICE_KEY = 'sparekey.device.v1'; // per-device prefs, never synced
 
 const SEED = {
   v: 1,
@@ -28,6 +33,54 @@ const SEED = {
 
 let db = null;
 
+// ---- per-device prefs (this phone only, never synced) ----
+function devicePrefs() {
+  try { return JSON.parse(localStorage.getItem(DEVICE_KEY) || '{}'); } catch (e) { return {}; }
+}
+function saveDevicePrefs(patch) {
+  try { localStorage.setItem(DEVICE_KEY, JSON.stringify(Object.assign(devicePrefs(), patch))); } catch (e) {}
+}
+function isWelcomed() { return !!devicePrefs().welcomed; }
+function setWelcomed() { saveDevicePrefs({ welcomed: true }); }
+
+// ---- Firebase (optional backend; dormant until configured) ----
+const Firebase = {
+  ok: false, app: null, auth: null, rdb: null,
+  user: null, circleId: null, sub: null,
+};
+const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.12.2/';
+function firebaseConfigured() {
+  return !!(window.SPAREKEY_FIREBASE && window.SPAREKEY_FIREBASE.apiKey);
+}
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error('script load failed'));
+    document.head.appendChild(s);
+  });
+}
+
+// The RTDB circle node mirrors db, except members is a map {uid: {name, photo}}
+// (security rules need uid keys) and device-only keys are stripped.
+const SYNC_SKIP = ['welcomed', 'currentUser'];
+function toRemote() {
+  const o = {};
+  Object.keys(db).forEach(k => { if (SYNC_SKIP.indexOf(k) < 0 && k !== 'circle') o[k] = db[k]; });
+  o.members = {};
+  (db.circle || []).forEach(c => { o.members[c.id] = { name: c.name, photo: c.photo || null }; });
+  return o;
+}
+function fromRemote(snap) {
+  const d = Object.assign({}, snap);
+  d.circle = Object.keys(snap.members || {}).map(id => ({ id, name: snap.members[id].name, photo: snap.members[id].photo || null }));
+  delete d.members;
+  ['listings', 'requests', 'stays', 'manuals', 'incidents', 'unanswered'].forEach(k => {
+    if (d[k] && !Array.isArray(d[k])) d[k] = Object.keys(d[k]).sort().map(k2 => d[k][k2]);
+  });
+  db = d;
+  migrate();
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(DB_KEY);
@@ -36,23 +89,44 @@ function load() {
   db = JSON.parse(JSON.stringify(SEED));
   save();
 }
-function save() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
-function migrate() {
-  // scoreboard now counts room nights instead of dollars
-  if (db.score && db.score.totalNights == null) {
-    db.score.totalNights = (db.score.entries || []).reduce((a, e) => a + (e.nights || 0), 0);
-    delete db.score.totalSaved;
-    save();
+function save() {
+  if (Firebase.ok && Firebase.rdb && Firebase.circleId) {
+    Firebase.rdb.ref('circles/' + Firebase.circleId).set(toRemote());
+  } else {
+    try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (e) {}
   }
 }
+function migrate() {
+  let dirty = false;
+  if (db.welcomed !== undefined) {
+    if (db.welcomed) saveDevicePrefs({ welcomed: true });
+    delete db.welcomed; dirty = true;
+  }
+  if (db.score && db.score.totalNights == null) {
+    db.score.totalNights = (db.score.entries || []).reduce((a, e) => a + (e.nights || 0), 0);
+    delete db.score.totalSaved; dirty = true;
+  }
+  if (dirty) save();
+}
 function resetDemo() {
-  const user = db.currentUser, welcomed = db.welcomed;
+  const user = db.currentUser;
+  const keep = (Firebase.ok && Firebase.circleId)
+    ? { circle: db.circle, name: db.name, inviteCode: db.inviteCode }
+    : null;
   db = JSON.parse(JSON.stringify(SEED));
   db.currentUser = user;
-  db.welcomed = welcomed;
+  if (keep) Object.assign(db, keep);
   save();
 }
-function uid(prefix) { return prefix + '_' + (db.seq++) + '_' + Date.now().toString(36); }
+function uid(prefix) {
+  return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+function makeInviteCode() {
+  const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 6; i++) s += abc[Math.floor(Math.random() * abc.length)];
+  return s;
+}
 
 /* ---------- Helpers ---------- */
 const $ = (sel, el) => (el || document).querySelector(sel);
@@ -110,11 +184,23 @@ function pendingIncomingCount() {
 }
 
 function renderChrome() {
-  const sel = $('#whoami');
-  sel.innerHTML = db.circle.map(c =>
-    '<option value="' + esc(c.id) + '"' + (c.id === db.currentUser ? ' selected' : '') + '>' + esc(c.name) + '</option>'
-  ).join('');
-  sel.onchange = () => { db.currentUser = sel.value; save(); render(); toast('Now viewing as ' + person(sel.value)); };
+  const wrap = $('#whoamiWrap');
+  if (Firebase.ok && Firebase.user) {
+    const u = Firebase.user;
+    wrap.innerHTML = '<span class="userchip">' +
+      (u.photoURL
+        ? '<img src="' + esc(u.photoURL) + '" alt="" referrerpolicy="no-referrer">'
+        : '<span class="avatar">' + esc(initials(u.displayName || 'F')) + '</span>') +
+      '<span class="whoami-label">' + esc(u.displayName || 'Friend') + '</span>' +
+      ' <button class="linklike" data-action="signout">Sign out</button></span>';
+  } else {
+    wrap.innerHTML = '<span class="whoami-label">Viewing as</span><select id="whoami" aria-label="Viewing as"></select>';
+    const sel = $('#whoami');
+    sel.innerHTML = db.circle.map(c =>
+      '<option value="' + esc(c.id) + '"' + (c.id === db.currentUser ? ' selected' : '') + '>' + esc(c.name) + '</option>'
+    ).join('');
+    sel.onchange = () => { db.currentUser = sel.value; save(); render(); toast('Now viewing as ' + person(sel.value)); };
+  }
 
   const r = route();
   document.querySelectorAll('.tab').forEach(t =>
@@ -155,6 +241,136 @@ function screenWelcome() {
     '<button class="btn btn-primary btn-block" data-action="welcome-done" style="margin-top:12px">Get started</button>';
 }
 
+/* ---------- Auth & circles (Firebase mode) ---------- */
+function screenLogin() {
+  return '<div class="hero">' +
+      '<div class="hero-label">Welcome back</div>' +
+      '<div class="hero-value" style="font-size:28px">Sign in to SpareKey</div>' +
+      '<div class="hero-sub">Your circle lives in the cloud now — sign in to pick up where you left off.</div></div>' +
+    '<button class="btn btn-primary btn-block" data-action="google-login">Continue with Google</button>' +
+    '<p class="small" style="text-align:center;margin-top:12px">We use your name and photo for your circle only. Nothing is shared or sold.</p>';
+}
+
+function screenCircleGate() {
+  return '<h1>Your circle</h1>' +
+    '<p class="sub">SpareKey is for people you trust. Create a circle — or join one with an invite code from your host.</p>' +
+    '<div class="card"><h3>Create a circle</h3>' +
+    '<form data-form="circle-create"><div class="field"><label for="cname">Circle name</label>' +
+    '<input id="cname" name="cname" maxlength="40" placeholder="e.g. Seattle friends"></div>' +
+    '<button class="btn btn-primary btn-block" type="submit">Create circle</button></form></div>' +
+    '<div class="card"><h3>Join a circle</h3>' +
+    '<form data-form="circle-join"><div class="field"><label for="code">Invite code</label>' +
+    '<input id="code" name="code" maxlength="12" placeholder="e.g. K7Q2MD" style="text-transform:uppercase" autocapitalize="characters"></div>' +
+    '<button class="btn btn-secondary btn-block" type="submit">Join circle</button></form></div>';
+}
+
+function initFirebase() {
+  const cfg = window.SPAREKEY_FIREBASE;
+  return loadScript(FIREBASE_SDK + 'firebase-app-compat.js')
+    .then(() => loadScript(FIREBASE_SDK + 'firebase-auth-compat.js'))
+    .then(() => loadScript(FIREBASE_SDK + 'firebase-database-compat.js'))
+    .then(() => {
+      Firebase.app = firebase.initializeApp(cfg);
+      Firebase.auth = firebase.auth();
+      Firebase.rdb = firebase.database();
+      Firebase.ok = true;
+      return new Promise(resolve => {
+        let first = true;
+        Firebase.auth.onAuthStateChanged(u => {
+          const prevUid = Firebase.user && Firebase.user.uid;
+          Firebase.user = u || null;
+          if (first) { first = false; resolve(); }
+          if (u && u.uid !== prevUid) enterApp();
+          else if (!u && prevUid) dropCircle();
+          else if (!first) render();
+        });
+      });
+    });
+}
+
+function dropCircle() {
+  if (Firebase.sub) { Firebase.sub.off(); Firebase.sub = null; }
+  Firebase.circleId = null;
+  saveDevicePrefs({ circleId: null });
+  render();
+}
+
+function enterApp() {
+  const u = Firebase.user;
+  if (!u) { render(); return; }
+  db.currentUser = u.uid;
+  const uref = Firebase.rdb.ref('users/' + u.uid);
+  uref.once('value').then(snap => {
+    const data = snap.val() || {};
+    uref.update({ name: u.displayName || 'Friend', photo: u.photoURL || null });
+    const circleId = data.activeCircle || devicePrefs().circleId;
+    if (circleId) subscribeCircle(circleId);
+    else render();
+  }).catch(() => render());
+}
+
+function subscribeCircle(circleId) {
+  Firebase.circleId = circleId;
+  saveDevicePrefs({ circleId });
+  Firebase.rdb.ref('users/' + Firebase.user.uid + '/activeCircle').set(circleId);
+  if (Firebase.sub) Firebase.sub.off();
+  const ref = Firebase.rdb.ref('circles/' + circleId);
+  Firebase.sub = ref;
+  ref.on('value', snap => {
+    const val = snap.val();
+    if (!val) return;
+    db.currentUser = Firebase.user.uid;
+    fromRemote(val);
+    render();
+  }, () => toast('Lost connection to your circle — reconnecting…'));
+}
+
+function freshCircleDb(name, code, me) {
+  const d = JSON.parse(JSON.stringify(SEED));
+  d.name = name;
+  d.inviteCode = code;
+  d.circle = [{ id: me.id, name: me.name, photo: me.photo || null }];
+  delete d.currentUser;
+  return d;
+}
+
+function createCircle(name) {
+  const u = Firebase.user;
+  if (!u) return;
+  const me = { id: u.uid, name: u.displayName || 'Friend', photo: u.photoURL || null };
+  const circleId = 'circle_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const code = makeInviteCode();
+  Firebase.circleId = circleId;
+  db = freshCircleDb(name, code, me);
+  db.currentUser = u.uid;
+  migrate();
+  Firebase.rdb.ref('circles/' + circleId).set(toRemote()).then(() =>
+    Firebase.rdb.ref('invites/' + code).set({ circleId, createdBy: u.uid, createdAt: Date.now() })
+  ).then(() => {
+    subscribeCircle(circleId);
+    toast('Circle created — share your invite code');
+  }).catch(e => {
+    Firebase.circleId = null;
+    toast('Could not create circle: ' + (e && e.message || e));
+    render();
+  });
+}
+
+function joinCircle(code) {
+  code = (code || '').trim().toUpperCase();
+  if (!code) { toast('Enter the invite code'); return; }
+  const u = Firebase.user;
+  if (!u) return;
+  Firebase.rdb.ref('invites/' + code).once('value').then(snap => {
+    const inv = snap.val();
+    if (!inv || !inv.circleId) { toast('Code not found — check with your host'); return; }
+    return Firebase.rdb.ref('circles/' + inv.circleId + '/members/' + u.uid)
+      .set({ name: u.displayName || 'Friend', photo: u.photoURL || null })
+      .then(() => subscribeCircle(inv.circleId))
+      .then(() => toast('Welcome to the circle'));
+  }).catch(e => toast('Could not join: ' + (e && e.message || e)));
+}
+
 function screenHome() {
   const nights = db.score.totalNights != null ? db.score.totalNights
     : db.score.entries.reduce((a, e) => a + e.nights, 0);
@@ -173,7 +389,10 @@ function screenHome() {
     '<h2>Your circle</h2>' +
     '<div class="card"><div class="chips">' +
       db.circle.map(c => '<span class="chip">' + avatar(c.name) + esc(c.name) + '</span>').join('') +
-    '</div><p class="small" style="margin:10px 0 0">Only circle members can see listings and request stays. No strangers, ever.</p></div>';
+    '</div><p class="small" style="margin:10px 0 0">Only circle members can see listings and request stays. No strangers, ever.</p>' +
+    (Firebase.ok && db.inviteCode
+      ? '<p class="invite">Invite code: <strong>' + esc(db.inviteCode) + '</strong> <button class="linklike" data-action="copy-invite">Copy</button></p>'
+      : '') + '</div>';
 }
 
 function screenListingNew() {
@@ -603,7 +822,25 @@ const Actions = {
   reset() {
     if (confirm('Reset all demo data?')) { resetDemo(); toast('Demo reset'); nav('#/home'); }
   },
-  'welcome-done'() { db.welcomed = true; save(); nav('#/home'); render(); },
+  'welcome-done'() { setWelcomed(); nav('#/home'); render(); },
+  'google-login'() {
+    if (!Firebase.ok) return;
+    const provider = new firebase.auth.GoogleAuthProvider();
+    Firebase.auth.signInWithPopup(provider).catch(e => toast('Sign-in failed: ' + (e && e.message || e)));
+  },
+  'signout'() {
+    if (!Firebase.ok) return;
+    dropCircle();
+    Firebase.auth.signOut();
+  },
+  'copy-invite'() {
+    const code = db.inviteCode || '';
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(
+        () => toast('Invite code copied'),
+        () => toast('Invite code: ' + code));
+    } else toast('Invite code: ' + code);
+  },
 };
 
 /* ---------- Forms ---------- */
@@ -611,6 +848,16 @@ function handleForm(form) {
   const kind = form.dataset.form;
   const fd = new FormData(form);
   const val = k => (fd.get(k) || '').toString().trim();
+
+  if (kind === 'circle-create') {
+    createCircle(val('cname') || 'My circle');
+    return;
+  }
+
+  if (kind === 'circle-join') {
+    joinCircle(val('code'));
+    return;
+  }
 
   if (kind === 'listing-new') {
     const start = val('start'), end = val('end'), rate = parseInt(val('rate'), 10);
@@ -690,8 +937,18 @@ function handleForm(form) {
 function render() {
   renderChrome();
   const view = $('#view');
-  if (!db.welcomed) {
+  if (!isWelcomed()) {
     view.innerHTML = screenWelcome();
+    window.scrollTo(0, 0);
+    return;
+  }
+  if (Firebase.ok && !Firebase.user) {
+    view.innerHTML = screenLogin();
+    window.scrollTo(0, 0);
+    return;
+  }
+  if (Firebase.ok && Firebase.user && !Firebase.circleId) {
+    view.innerHTML = screenCircleGate();
     window.scrollTo(0, 0);
     return;
   }
@@ -756,4 +1013,14 @@ document.addEventListener('submit', e => {
 /* ---------- Boot ---------- */
 load();
 if (!location.hash) location.hash = '#/home';
-render();
+if (firebaseConfigured()) {
+  const view = $('#view');
+  view.innerHTML = '<div class="card empty" style="margin-top:40px"><p>Connecting…</p></div>';
+  initFirebase().catch(() => {
+    Firebase.ok = false;
+    toast('Could not reach the cloud — demo mode');
+    render();
+  });
+} else {
+  render();
+}
