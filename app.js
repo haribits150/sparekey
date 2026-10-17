@@ -22,7 +22,7 @@ const SEED = {
   manuals: [],
   incidents: [],
   unanswered: [],
-  score: { totalSaved: 0, entries: [] },
+  score: { totalNights: 0, entries: [] },
   seq: 1,
 };
 
@@ -31,12 +31,20 @@ let db = null;
 function load() {
   try {
     const raw = localStorage.getItem(DB_KEY);
-    if (raw) { const d = JSON.parse(raw); if (d && d.v === 1) { db = d; return; } }
+    if (raw) { const d = JSON.parse(raw); if (d && d.v === 1) { db = d; migrate(); return; } }
   } catch (e) { /* corrupted -> reseed */ }
   db = JSON.parse(JSON.stringify(SEED));
   save();
 }
 function save() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+function migrate() {
+  // scoreboard now counts room nights instead of dollars
+  if (db.score && db.score.totalNights == null) {
+    db.score.totalNights = (db.score.entries || []).reduce((a, e) => a + (e.nights || 0), 0);
+    delete db.score.totalSaved;
+    save();
+  }
+}
 function resetDemo() {
   const user = db.currentUser;
   db = JSON.parse(JSON.stringify(SEED));
@@ -133,13 +141,14 @@ function listingCard(l) {
 
 /* ---------- Screens ---------- */
 function screenHome() {
-  const total = db.score.totalSaved;
-  const nights = db.score.entries.reduce((a, e) => a + e.nights, 0);
+  const nights = db.score.totalNights != null ? db.score.totalNights
+    : db.score.entries.reduce((a, e) => a + e.nights, 0);
+  const stays = db.score.entries.length;
   const openListings = db.listings.filter(l => l.status === 'open');
   return '<div class="hero">' +
-      '<div class="hero-label">Friends’ hotel money saved</div>' +
-      '<div class="hero-value">' + esc(money(total)) + '</div>' +
-      '<div class="hero-sub">' + nights + ' night' + (nights === 1 ? '' : 's') + ' hosted across ' + db.score.entries.length + ' stay' + (db.score.entries.length === 1 ? '' : 's') + '</div>' +
+      '<div class="hero-label">Room nights hosted</div>' +
+      '<div class="hero-value">' + nights + '</div>' +
+      '<div class="hero-sub">across ' + stays + ' stay' + (stays === 1 ? '' : 's') + '</div>' +
       '<a class="btn btn-primary" href="#/listing/new">Post away dates</a>' +
     '</div>' +
     '<h2>Open listings · circle only</h2>' +
@@ -458,7 +467,7 @@ function screenStay(stayId) {
     }
   } else if (s.status === 'closed') {
     const entry = db.score.entries.find(e => e.stayId === s.id);
-    html += '<div class="card"><div class="row"><span class="meta">Stay complete</span><strong>' + (entry ? esc(money(entry.amount)) + ' saved' : '') + '</strong></div>' +
+    html += '<div class="card"><div class="row"><span class="meta">Stay complete</span><strong>' + (entry ? entry.nights + ' night' + (entry.nights === 1 ? '' : 's') + ' hosted' : '') + '</strong></div>' +
       '<div style="margin-top:10px"><a class="btn btn-secondary btn-block" href="#/manual/' + esc(s.id) + '">View manual & guestbook</a></div></div>';
   }
 
@@ -494,15 +503,17 @@ function screenCheckout(stayId) {
 
 function screenScore() {
   const e = db.score.entries;
-  return '<div class="hero"><div class="hero-label">Total hotel money saved for friends</div>' +
-      '<div class="hero-value">' + esc(money(db.score.totalSaved)) + '</div>' +
-      '<div class="hero-sub">The north star. Every stay adds nights × nightly rate.</div></div>' +
+  const totalN = db.score.totalNights != null ? db.score.totalNights
+    : e.reduce((a, x) => a + (x.nights || 0), 0);
+  return '<div class="hero"><div class="hero-label">Total room nights hosted</div>' +
+      '<div class="hero-value">' + totalN + '</div>' +
+      '<div class="hero-sub">Every completed stay adds its nights to the count.</div></div>' +
     '<h2>Stay history</h2>' +
     (e.length ? '<div class="card">' + e.map(x => {
         const s = getStay(x.stayId);
         return '<div class="row"><div><strong>' + esc(s ? person(s.guestId) : '—') + '</strong>' +
-          '<div class="meta">' + esc(s ? fmtRange(s.start, s.end) : '') + ' · ' + x.nights + ' nights × ' + esc(money(x.rate)) + '</div></div>' +
-          '<strong>' + esc(money(x.amount)) + '</strong></div>';
+          '<div class="meta">' + esc(s ? fmtRange(s.start, s.end) : '') + '</div></div>' +
+          '<strong>' + x.nights + ' night' + (x.nights === 1 ? '' : 's') + '</strong></div>';
       }).join('<hr class="divider">') + '</div>'
       : '<div class="card empty"><p>No completed stays yet.</p></div>') +
     '<h2>Demo</h2><div class="card"><p class="small">Reset all listings, requests, stays, and the scoreboard to start the demo script fresh.</p>' +
@@ -512,14 +523,13 @@ function screenScore() {
 /* ---------- Actions ---------- */
 function closeStay(s, incidentData) {
   const nights = nightsBetween(s.start, s.end);
-  const amount = nights * s.nightlyRate;
   if (incidentData && incidentData.description.trim()) {
     db.incidents.push({ id: uid('inc'), stayId: s.id, description: incidentData.description.trim(),
       resolution: incidentData.resolution.trim() || 'To be agreed with host', status: 'open' });
   }
   s.status = 'closed';
-  db.score.totalSaved += amount;
-  db.score.entries.push({ stayId: s.id, nights, rate: s.nightlyRate, amount });
+  db.score.totalNights = (db.score.totalNights || 0) + nights;
+  db.score.entries.push({ stayId: s.id, nights, rate: s.nightlyRate });
   save();
 }
 
