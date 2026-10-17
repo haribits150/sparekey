@@ -26,6 +26,7 @@ async function clickAction(a) { d.querySelector('[data-action="' + a + '"]').dis
 
 (async () => {
   await tick();
+  await clickAction('welcome-done'); // dismiss first-run welcome
   // seed a listing as Hari
   setWho('hari');
   await go('#/listing/new');
