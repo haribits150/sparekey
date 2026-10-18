@@ -41,6 +41,12 @@ function mockRef(p) {
     off: () => { delete rdbListeners[p]; },
     set: v => { setPath(p, JSON.parse(JSON.stringify(v))); notify(p); return Promise.resolve(); },
     update: v => { setPath(p, Object.assign({}, getPath(p), v)); notify(p); return Promise.resolve(); },
+    transaction: fn => {
+      const cur = getPath(p);
+      const next = fn(cur === undefined ? null : JSON.parse(JSON.stringify(cur)));
+      setPath(p, JSON.parse(JSON.stringify(next))); notify(p);
+      return Promise.resolve({ committed: true, snapshot: { val: () => getPath(p) } });
+    },
   };
 }
 
