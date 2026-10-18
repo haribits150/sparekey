@@ -71,6 +71,7 @@ function toRemote() {
   return o;
 }
 function fromRemote(snap) {
+  const keepUser = db ? db.currentUser : undefined; // never let sync wipe who "I" am
   const d = Object.assign({}, snap);
   d.circle = Object.keys(snap.members || {}).map(id => ({ id, name: snap.members[id].name, photo: snap.members[id].photo || null }));
   delete d.members;
@@ -78,6 +79,7 @@ function fromRemote(snap) {
     if (d[k] && !Array.isArray(d[k])) d[k] = Object.keys(d[k]).sort().map(k2 => d[k][k2]);
   });
   db = d;
+  if (keepUser !== undefined) db.currentUser = keepUser;
   migrate();
 }
 
@@ -193,8 +195,12 @@ function renderChrome() {
         : '<span class="avatar">' + esc(initials(u.displayName || 'F')) + '</span>') +
       '<span class="whoami-label">' + esc(u.displayName || 'Friend') + '</span>' +
       ' <button class="linklike" data-action="signout">Sign out</button></span>';
+  } else if (firebaseConfigured()) {
+    // Signed out (or still connecting): the demo "Viewing as" switcher is
+    // meaningless here — there is no local demo circle in Firebase mode.
+    wrap.innerHTML = '<span class="whoami-label">Not signed in</span>';
   } else {
-    wrap.innerHTML = '<span class="whoami-label">Viewing as</span><select id="whoami" aria-label="Viewing as"></select>';
+    wrap.innerHTML = '<label><span class="whoami-label">Viewing as</span><select id="whoami" aria-label="Viewing as"></select></label>';
     const sel = $('#whoami');
     sel.innerHTML = db.circle.map(c =>
       '<option value="' + esc(c.id) + '"' + (c.id === db.currentUser ? ' selected' : '') + '>' + esc(c.name) + '</option>'
@@ -829,9 +835,9 @@ const Actions = {
     Firebase.auth.signInWithPopup(provider).catch(e => toast('Sign-in failed: ' + (e && e.message || e)));
   },
   'signout'() {
-    if (!Firebase.ok) return;
+    if (!Firebase.ok || !Firebase.auth) return;
     dropCircle();
-    Firebase.auth.signOut();
+    Firebase.auth.signOut().catch(e => toast('Sign-out failed: ' + (e && e.message || e)));
   },
   'copy-invite'() {
     const code = db.inviteCode || '';
