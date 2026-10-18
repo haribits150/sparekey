@@ -37,6 +37,7 @@ function makeDom(firebaseMode, seedV1, remoteNode) {
       off: () => {},
       set: () => Promise.resolve(),
       update: () => Promise.resolve(),
+      transaction: () => Promise.resolve({ committed: true, snapshot: { val: () => getP(p) } }),
     });
     w.firebase = { initializeApp: () => ({}), auth: authNs, database: () => ({ ref }) };
     const origCreate = w.document.createElement.bind(w.document);
