@@ -88,6 +88,73 @@ function fromRemote(snap) {
   migrate();
 }
 
+/* Merge a local circle snapshot with the server's, so two phones saving at
+   once union instead of clobbering each other. Rule: append-only data unions
+   by id; the same item edited on both phones goes to whoever saved last
+   (per item, not per circle); the scoreboard total is recomputed from its
+   entries so concurrent checkouts can't desync it. Pure — safe to re-run. */
+function asArr(x) { return Array.isArray(x) ? x : []; }
+function unionById(remoteArr, localArr) {
+  return unionByKey(remoteArr, localArr, 'id');
+}
+function unionByKey(remoteArr, localArr, key) {
+  const map = new Map();
+  asArr(remoteArr).forEach(e => { if (e && e[key] != null) map.set(e[key], e); });
+  asArr(localArr).forEach(e => { if (e && e[key] != null) map.set(e[key], e); });
+  return Array.from(map.values());
+}
+function unionByJson(remoteArr, localArr) {
+  const seen = new Set(), out = [];
+  asArr(remoteArr).concat(asArr(localArr)).forEach(e => {
+    const k = JSON.stringify(e);
+    if (!seen.has(k)) { seen.add(k); out.push(e); }
+  });
+  return out;
+}
+function mergeStay(r, l) {
+  const m = Object.assign({}, r, l);
+  m.conciergeLog = unionByJson(r && r.conciergeLog, l && l.conciergeLog);
+  if ((r && r.interviewAnswers) || (l && l.interviewAnswers))
+    m.interviewAnswers = Object.assign({}, r && r.interviewAnswers, l && l.interviewAnswers);
+  return m;
+}
+function mergeManual(r, l) {
+  const m = Object.assign({}, r, l);
+  m.sections = Object.assign({}, r && r.sections, l && l.sections);
+  m.guestbook = unionByJson(r && r.guestbook, l && l.guestbook);
+  return m;
+}
+function mergeCircle(remote, local) {
+  if (!remote) return local;
+  if (!local) return remote;
+  const out = Object.assign({}, remote, local);
+  out.name = local.name || remote.name;
+  out.inviteCode = local.inviteCode || remote.inviteCode;
+  out.seq = Math.max(remote.seq || 0, local.seq || 0);
+  out.members = Object.assign({}, remote.members, local.members);
+  out.listings = unionById(remote.listings, local.listings);
+  out.requests = unionById(remote.requests, local.requests);
+  out.incidents = unionById(remote.incidents, local.incidents);
+  out.unanswered = unionById(remote.unanswered, local.unanswered);
+  const stayMap = new Map();
+  asArr(remote.stays).forEach(s => { if (s && s.id != null) stayMap.set(s.id, s); });
+  asArr(local.stays).forEach(s => {
+    if (!s || s.id == null) return;
+    stayMap.set(s.id, stayMap.has(s.id) ? mergeStay(stayMap.get(s.id), s) : s);
+  });
+  out.stays = Array.from(stayMap.values());
+  const manMap = new Map();
+  asArr(remote.manuals).forEach(m => { if (m && m.id != null) manMap.set(m.id, m); });
+  asArr(local.manuals).forEach(m => {
+    if (!m || m.id == null) return;
+    manMap.set(m.id, manMap.has(m.id) ? mergeManual(manMap.get(m.id), m) : m);
+  });
+  out.manuals = Array.from(manMap.values());
+  out.score = { entries: unionByKey(remote.score && remote.score.entries, local.score && local.score.entries, 'stayId') };
+  out.score.totalNights = out.score.entries.reduce((a, e) => a + (e.nights || 0), 0);
+  return out;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(DB_KEY);
@@ -96,9 +163,14 @@ function load() {
   db = JSON.parse(JSON.stringify(SEED));
   save();
 }
-function save() {
+// mode 'replace' overwrites the whole node (demo reset); the default merges
+// via transaction so concurrent saves from two phones union (see mergeCircle).
+function save(mode) {
   if (Firebase.ok && Firebase.rdb && Firebase.circleId) {
-    Firebase.rdb.ref('circles/' + Firebase.circleId).set(toRemote());
+    const ref = Firebase.rdb.ref('circles/' + Firebase.circleId);
+    const watch = p => p.catch(() => toast('Couldn’t save — check your connection'));
+    if (mode === 'replace') watch(ref.set(toRemote()));
+    else watch(ref.transaction(cur => mergeCircle(cur, toRemote())));
   } else {
     try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (e) {}
   }
@@ -123,7 +195,7 @@ function resetDemo() {
   db = JSON.parse(JSON.stringify(SEED));
   db.currentUser = user;
   if (keep) Object.assign(db, keep);
-  save();
+  save('replace'); // deliberate wipe — merge would resurrect the old data
 }
 function uid(prefix) {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -946,22 +1018,82 @@ function handleForm(form) {
 }
 
 /* ---------- Render ---------- */
+/* Preserve in-progress form input across re-renders — a cloud sync arriving
+   while the guest is typing a concierge question must not wipe the draft.
+   Fields inside a form that was just submitted are skipped (already consumed). */
+function fieldKey(el) {
+  const form = el.closest('form');
+  const fk = form ? (form.getAttribute('data-form') || '') + '|' + (form.getAttribute('data-id') || '') : '';
+  return fk + '|' + (el.name || '');
+}
+function findFieldByKey(k) {
+  const parts = k.split('|'), name = parts.pop(), formId = parts.pop() || '', formKind = parts.join('|');
+  const view = document.getElementById('view');
+  let scope = view;
+  if (formKind) {
+    scope = null;
+    view.querySelectorAll('form[data-form="' + formKind + '"]').forEach(f => {
+      if (!scope && (f.getAttribute('data-id') || '') === formId) scope = f;
+    });
+    if (!scope) return null;
+  }
+  const n = (window.CSS && CSS.escape) ? CSS.escape(name) : name;
+  return scope.querySelector('[name="' + n + '"]');
+}
+function snapshotViewFields() {
+  const snap = { fields: {}, activeKey: null, selStart: null, selEnd: null };
+  const view = document.getElementById('view');
+  if (!view) return snap;
+  view.querySelectorAll('input[name], textarea[name], select[name]').forEach(el => {
+    if (el.closest('form[data-just-submitted="1"]')) return;
+    const k = fieldKey(el);
+    const isCheck = el.type === 'checkbox' || el.type === 'radio';
+    snap.fields[k] = isCheck ? { checked: el.checked } : { value: el.value };
+    if (el === document.activeElement) {
+      snap.activeKey = k;
+      try { snap.selStart = el.selectionStart; snap.selEnd = el.selectionEnd; } catch (e) {}
+    }
+  });
+  return snap;
+}
+function restoreViewFields(snap) {
+  if (!snap) return;
+  Object.keys(snap.fields).forEach(k => {
+    const saved = snap.fields[k], el = findFieldByKey(k);
+    if (!el) return;
+    if ('checked' in saved) el.checked = saved.checked;
+    else if ('value' in saved && typeof el.value === 'string') el.value = saved.value;
+    if (k === snap.activeKey) {
+      try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (e2) {} }
+      try {
+        if (el.setSelectionRange && snap.selStart != null && /^(text|search|url|tel|password)$/.test(el.type || 'text'))
+          el.setSelectionRange(snap.selStart, snap.selEnd);
+      } catch (e) {}
+    }
+  });
+}
+
 function render() {
+  const fieldSnap = snapshotViewFields();
+  const restored = () => restoreViewFields(fieldSnap);
   renderChrome();
   const view = $('#view');
   if (!isWelcomed()) {
     view.innerHTML = screenWelcome();
     window.scrollTo(0, 0);
+    restored();
     return;
   }
   if (Firebase.ok && !Firebase.user) {
     view.innerHTML = screenLogin();
     window.scrollTo(0, 0);
+    restored();
     return;
   }
   if (Firebase.ok && Firebase.user && !Firebase.circleId) {
     view.innerHTML = screenCircleGate();
     window.scrollTo(0, 0);
+    restored();
     return;
   }
   const r = route();
@@ -987,6 +1119,7 @@ function render() {
   view.innerHTML = html;
   window.scrollTo(0, 0);
   wireCheckoutChecklist();
+  restored();
 }
 
 function wireCheckoutChecklist() {
@@ -1019,6 +1152,7 @@ document.addEventListener('submit', e => {
   const form = e.target.closest('[data-form]');
   if (!form) return;
   e.preventDefault();
+  form.dataset.justSubmitted = '1'; // render() must not restore these consumed fields
   handleForm(form);
 });
 
