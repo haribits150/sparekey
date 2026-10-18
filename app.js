@@ -75,9 +75,14 @@ function fromRemote(snap) {
   const d = Object.assign({}, snap);
   d.circle = Object.keys(snap.members || {}).map(id => ({ id, name: snap.members[id].name, photo: snap.members[id].photo || null }));
   delete d.members;
+  // RTDB strips empty arrays (and nulls) on write — default everything back.
+  // A missing key must never crash render(); navigation depends on it.
   ['listings', 'requests', 'stays', 'manuals', 'incidents', 'unanswered'].forEach(k => {
-    if (d[k] && !Array.isArray(d[k])) d[k] = Object.keys(d[k]).sort().map(k2 => d[k][k2]);
+    if (!Array.isArray(d[k])) d[k] = d[k] ? Object.keys(d[k]).sort().map(k2 => d[k][k2]) : [];
   });
+  if (!d.score || typeof d.score !== 'object') d.score = { totalNights: 0, entries: [] };
+  if (d.score.totalNights == null) d.score.totalNights = 0;
+  if (!Array.isArray(d.score.entries)) d.score.entries = [];
   db = d;
   if (keepUser !== undefined) db.currentUser = keepUser;
   migrate();
@@ -181,8 +186,9 @@ window.addEventListener('hashchange', render);
 /* ---------- Shared chrome ---------- */
 function pendingIncomingCount() {
   const me = db.currentUser;
-  const myListingIds = db.listings.filter(l => l.hostId === me && l.status === 'open').map(l => l.id);
-  return db.requests.filter(r => myListingIds.includes(r.listingId) && r.status === 'pending').length;
+  const listings = db.listings || [], requests = db.requests || [];
+  const myListingIds = listings.filter(l => l.hostId === me && l.status === 'open').map(l => l.id);
+  return requests.filter(r => myListingIds.includes(r.listingId) && r.status === 'pending').length;
 }
 
 function renderChrome() {
