@@ -66,7 +66,7 @@ function checkAllBoxes() {
   setWho('hari');
   await go('#/listing/new');
   fill('start', '2026-11-20'); fill('end', '2026-12-05');
-  fill('rate', '180'); fill('note', '2BR in Bellevue, 10 min to downtown');
+  fill('note', '2BR in Bellevue, 10 min to downtown');
   await submit();
   check('1. listing posted', /Bellevue/.test(text()), 'on home screen');
 
