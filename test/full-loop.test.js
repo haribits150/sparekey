@@ -172,7 +172,7 @@ function navTo(w, hash) {
   check('R5 both members in circle', members.includes('u_hari') && members.includes('u_prem'), members.join(','));
 
   // --- Hari posts a listing; Prem requests it ---
-  submitForm(hari, 'listing-new', { start: '2026-11-01', end: '2026-11-05', rate: '150', note: 't' });
+  submitForm(hari, 'listing-new', { start: '2026-11-01', end: '2026-11-05', note: 't' });
   await sleep(80);
   const listing = (circleOf().listings || [])[0];
   check('R6 listing posted with hari as host', !!(listing && listing.hostId === 'u_hari'));
