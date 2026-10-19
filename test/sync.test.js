@@ -21,7 +21,7 @@ const seedDb = {
   ],
   listings: [{ id: 'listing_x', hostId: 'uid_aaa' }],
   requests: [], stays: [], manuals: [], incidents: [], unanswered: [],
-  score: { totalNights: 4, entries: [{ stayId: 's1', nights: 4, rate: 150 }] },
+  score: { totalNights: 4, entries: [{ stayId: 's1', nights: 4 }] },
 };
 
 const dom = new JSDOM(html, { url: 'http://localhost/', runScripts: 'dangerously' });
