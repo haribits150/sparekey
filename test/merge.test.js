@@ -62,9 +62,9 @@ const base = () => ({
 // M4: concurrent checkouts -> entries union AND total recomputed (no desync)
 {
   const remote = base();
-  remote.score = { totalNights: 2, entries: [{ stayId: 's1', nights: 2, rate: 150 }] };
+  remote.score = { totalNights: 2, entries: [{ stayId: 's1', nights: 2 }] };
   const local = base();
-  local.score = { totalNights: 3, entries: [{ stayId: 's2', nights: 3, rate: 150 }] };
+  local.score = { totalNights: 3, entries: [{ stayId: 's2', nights: 3 }] };
   const m = w.mergeCircle(remote, local);
   check('M4 score self-heals', m.score.entries.length === 2 && m.score.totalNights === 5);
 }
