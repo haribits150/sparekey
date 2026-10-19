@@ -30,7 +30,7 @@ async function clickAction(a) { d.querySelector('[data-action="' + a + '"]').dis
   // seed a listing as Hari
   setWho('hari');
   await go('#/listing/new');
-  fill('start', '2026-11-20'); fill('end', '2026-12-05'); fill('rate', '180'); fill('note', 'test place');
+  fill('start', '2026-11-20'); fill('end', '2026-12-05'); fill('note', 'test place');
   await submit();
   const listingHash = d.querySelector('a.card.listing').getAttribute('href');
 
@@ -59,7 +59,7 @@ async function clickAction(a) { d.querySelector('[data-action="' + a + '"]').dis
 
   // E4: listing with end before start rejected
   await go('#/listing/new');
-  fill('start', '2026-12-05'); fill('end', '2026-11-20'); fill('rate', '100');
+  fill('start', '2026-12-05'); fill('end', '2026-11-20');
   await submit();
   check('E4. inverted date range rejected', d.querySelector('[data-form="listing-new"]') !== null);
 
