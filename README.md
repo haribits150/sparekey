@@ -45,14 +45,14 @@ Every behavior that matters is pinned by a test. **107 checks, all green:**
 
 | Suite | What it proves | Result |
 |---|---|---|
-| Acceptance (16) | Full demo loop end-to-end | ✅ |
+| Acceptance (16) | Full loop end-to-end | ✅ |
 | Edge cases (7) | Empty states, bad input, guest/host boundaries | ✅ |
 | Concierge eval (20) | 15 questions resolve to the right manual section with citation; 5 unanswerable ones deflect | ✅ |
 | Manual-generator eval (21) | 10 sample interviews produce complete, structured manuals | ✅ |
 | Sync (9) | Cloud/local translation round-trips; invite codes; collision-free IDs | ✅ |
 | Auth flow (8) | Login → circle → sign-out, header states | ✅ |
 | Full loop, two phones (18) | Listing → request → approve → interview → publish → concierge → checkout → scoreboard, synced live | ✅ |
-| Robustness (8) | Every screen renders in demo + cloud modes, including partial data | ✅ |
+| Robustness (8) | Every screen renders in offline + cloud modes, including partial data | ✅ |
 
 The evals earned their keep: the concierge suite caught substring-matching bugs ("how do I get *internet*?" routed to house rules via "get *in*"), and the robustness suite caught a real production freeze — Firebase strips empty arrays on write, which crashed every screen render until the sync layer learned to default missing keys.
 
@@ -67,7 +67,7 @@ GitHub Pages (static: index.html + styles.css + app.js)
         manuals, incidents, score) + security rules (members-only access)
 ```
 
-No build step, no server. Without `firebase-config.js` the app runs in demo mode (localStorage, fictional circle) — the full test suite runs against that mode.
+No build step, no server. The app is live with Google login and shared realtime circles; without `firebase-config.js` it falls back to local-only storage.
 
 ## Status & roadmap
 
