@@ -904,6 +904,9 @@ const Actions = {
   'google-login'() {
     if (!Firebase.ok) return;
     const provider = new firebase.auth.GoogleAuthProvider();
+    // Always show the account chooser — never silently reuse whoever is
+    // already signed into Google in this browser (shared devices).
+    if (provider.setCustomParameters) provider.setCustomParameters({ prompt: 'select_account' });
     Firebase.auth.signInWithPopup(provider).catch(e => toast('Sign-in failed: ' + (e && e.message || e)));
   },
   'signout'() {
