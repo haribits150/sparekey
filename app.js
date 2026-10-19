@@ -1,5 +1,5 @@
 /* SpareKey MVP — static single-page app.
-   Demo mode: state in localStorage, fictional circle.
+   Offline fallback: state in localStorage when the cloud is unreachable.
    Firebase mode (window.SPAREKEY_FIREBASE set via firebase-config.js):
    Google login + Realtime Database, shared circles via invite codes,
    realtime sync across devices.
@@ -163,7 +163,7 @@ function load() {
   db = JSON.parse(JSON.stringify(SEED));
   save();
 }
-// mode 'replace' overwrites the whole node (demo reset); the default merges
+// mode 'replace' overwrites the whole node (full reset); the default merges
 // via transaction so concurrent saves from two phones union (see mergeCircle).
 function save(mode) {
   if (Firebase.ok && Firebase.rdb && Firebase.circleId) {
@@ -225,7 +225,6 @@ function fmtRange(a, b) { return fmtDate(a) + ' – ' + fmtDate(b); }
 function nightsBetween(a, b) {
   return Math.max(0, Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000));
 }
-function money(n) { return '$' + Number(n).toLocaleString('en-US'); }
 function getListing(id) { return db.listings.find(l => l.id === id); }
 function getRequest(id) { return db.requests.find(r => r.id === id); }
 function getStay(id) { return db.stays.find(s => s.id === id); }
@@ -274,8 +273,8 @@ function renderChrome() {
       '<span class="whoami-label">' + esc(u.displayName || 'Friend') + '</span>' +
       ' <button class="linklike" data-action="signout">Sign out</button></span>';
   } else if (firebaseConfigured()) {
-    // Signed out (or still connecting): the demo "Viewing as" switcher is
-    // meaningless here — there is no local demo circle in Firebase mode.
+    // Signed out (or still connecting): the "Viewing as" switcher is
+    // meaningless here — there is no local circle in Firebase mode.
     wrap.innerHTML = '<span class="whoami-label">Not signed in</span>';
   } else {
     wrap.innerHTML = '<label><span class="whoami-label">Viewing as</span><select id="whoami" aria-label="Viewing as"></select></label>';
@@ -304,7 +303,7 @@ function listingCard(l) {
   return '<a class="card listing" href="#/listing/' + esc(l.id) + '">' +
     '<div class="row"><div class="row" style="gap:10px">' + avatar(person(l.hostId)) +
     '<div><h3>' + esc(person(l.hostId)) + '’s place</h3>' +
-    '<div class="meta">' + esc(fmtRange(l.start, l.end)) + ' · ' + esc(money(l.nightlyRate)) + '/night</div></div></div>' +
+    '<div class="meta">' + esc(fmtRange(l.start, l.end)) + '</div></div></div>' +
     statusPill(l.status) + '</div>' +
     (l.note ? '<p class="sub" style="margin:8px 0 0">' + esc(l.note) + '</p>' : '') +
     '</a>';
@@ -485,9 +484,6 @@ function screenListingNew() {
     '<form data-form="listing-new" class="card">' +
       '<div class="field"><label for="f-start">Away from</label><input id="f-start" name="start" type="date" required></div>' +
       '<div class="field"><label for="f-end">Back on</label><input id="f-end" name="end" type="date" required></div>' +
-      '<div class="field"><label for="f-rate">Nightly hotel rate (USD)</label>' +
-        '<input id="f-rate" name="rate" type="number" min="1" step="1" placeholder="180" required>' +
-        '<div class="hint">What a hotel nearby would cost — this powers the scoreboard.</div></div>' +
       '<div class="field"><label for="f-note">One line about the place</label>' +
         '<textarea id="f-note" name="note" placeholder="2BR in Bellevue, 10 min to downtown"></textarea></div>' +
       '<button class="btn btn-primary btn-block" type="submit">Post listing</button>' +
@@ -501,7 +497,6 @@ function screenListingDetail(id) {
   const isHost = l.hostId === me;
   let html = '<h1>' + esc(person(l.hostId)) + '’s place</h1>' +
     '<div class="card"><div class="row"><div><div class="meta">Away</div><h3>' + esc(fmtRange(l.start, l.end)) + '</h3></div>' + statusPill(l.status) + '</div>' +
-    '<div class="row"><span class="meta">Nightly hotel rate</span><strong>' + esc(money(l.nightlyRate)) + '</strong></div>' +
     (l.note ? '<p style="margin-top:8px">' + esc(l.note) + '</p>' : '') + '</div>';
 
   if (isHost) {
@@ -564,7 +559,7 @@ function stayCard(s) {
   return '<a class="card listing" href="#/stay/' + esc(s.id) + '">' +
     '<div class="row"><div class="row" style="gap:10px">' + avatar(person(s.guestId === db.currentUser ? s.hostId : s.guestId)) +
     '<div><h3>' + esc(s.guestId === db.currentUser ? person(s.hostId) + '’s place' : person(s.guestId) + ' staying over') + '</h3>' +
-    '<div class="meta">' + esc(fmtRange(s.start, s.end)) + ' · ' + esc(money(s.nightlyRate)) + '/night</div></div></div>' +
+    '<div class="meta">' + esc(fmtRange(s.start, s.end)) + '</div></div></div>' +
     statusPill(s.status) + '</div></a>';
 }
 
@@ -761,7 +756,6 @@ function screenStay(stayId) {
 
   let html = '<h1>' + esc(isGuest ? person(s.hostId) + '’s place' : person(s.guestId) + '’s stay') + '</h1>' +
     '<div class="card"><div class="row"><div><div class="meta">Dates</div><h3>' + esc(fmtRange(s.start, s.end)) + '</h3></div>' + statusPill(s.status) + '</div>' +
-    '<div class="row"><span class="meta">Nightly rate</span><strong>' + esc(money(s.nightlyRate)) + '</strong></div>' +
     '<div class="row"><span class="meta">' + (isHost ? 'Guest' : 'Host') + '</span><strong>' + esc(person(isHost ? s.guestId : s.hostId)) + '</strong></div></div>';
 
   if (s.status === 'interview' && isHost) {
@@ -839,8 +833,8 @@ function screenScore() {
           '<strong>' + x.nights + ' night' + (x.nights === 1 ? '' : 's') + '</strong></div>';
       }).join('<hr class="divider">') + '</div>'
       : '<div class="card empty"><p>No completed stays yet.</p></div>') +
-    '<h2>Demo</h2><div class="card"><p class="small">Reset all listings, requests, stays, and the scoreboard to start the demo script fresh.</p>' +
-    '<button class="btn btn-secondary btn-block" data-action="reset">Reset demo data</button></div>';
+    '<h2>Reset</h2><div class="card"><p class="small">Clear all listings, requests, stays, and the scoreboard to start fresh. This cannot be undone.</p>' +
+    '<button class="btn btn-secondary btn-block" data-action="reset">Reset circle data</button></div>';
 }
 
 /* ---------- Actions ---------- */
@@ -852,7 +846,7 @@ function closeStay(s, incidentData) {
   }
   s.status = 'closed';
   db.score.totalNights = (db.score.totalNights || 0) + nights;
-  db.score.entries.push({ stayId: s.id, nights, rate: s.nightlyRate });
+  db.score.entries.push({ stayId: s.id, nights });
   save();
 }
 
@@ -863,7 +857,7 @@ const Actions = {
     r.status = 'approved';
     const l = getListing(r.listingId);
     const stay = { id: uid('stay'), requestId: r.id, listingId: r.listingId, hostId: l.hostId,
-      guestId: r.guestId, start: r.start, end: r.end, nightlyRate: l.nightlyRate,
+      guestId: r.guestId, start: r.start, end: r.end,
       manualId: null, status: 'interview', conciergeLog: [] };
     db.stays.push(stay);
     save();
@@ -904,7 +898,7 @@ const Actions = {
     save(); render(); toast('Incident resolved');
   },
   reset() {
-    if (confirm('Reset all demo data?')) { resetDemo(); toast('Demo reset'); nav('#/home'); }
+    if (confirm('Reset all circle data? This cannot be undone.')) { resetDemo(); toast('Circle data reset'); nav('#/home'); }
   },
   'welcome-done'() { setWelcomed(); nav('#/home'); render(); },
   'google-login'() {
@@ -944,11 +938,10 @@ function handleForm(form) {
   }
 
   if (kind === 'listing-new') {
-    const start = val('start'), end = val('end'), rate = parseInt(val('rate'), 10);
+    const start = val('start'), end = val('end');
     if (!start || !end || end <= start) { toast('Pick a valid date range'); return; }
-    if (!rate || rate <= 0) { toast('Enter a nightly rate'); return; }
     db.listings.push({ id: uid('listing'), hostId: db.currentUser, start, end,
-      nightlyRate: rate, note: val('note'), status: 'open' });
+      note: val('note'), status: 'open' });
     save(); toast('Listing posted — your circle can see it'); nav('#/home');
   }
 
@@ -1164,7 +1157,7 @@ if (firebaseConfigured()) {
   view.innerHTML = '<div class="card empty" style="margin-top:40px"><p>Connecting…</p></div>';
   initFirebase().catch(() => {
     Firebase.ok = false;
-    toast('Could not reach the cloud — demo mode');
+    toast('Could not reach the cloud — working offline');
     render();
   });
 } else {
