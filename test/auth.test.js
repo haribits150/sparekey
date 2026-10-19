@@ -133,7 +133,7 @@ function check(name, cond, detail) {
   const lf = w.document.createElement('form');
   lf.setAttribute('data-form', 'listing-new');
   lf.innerHTML = '<input name="start" value="2026-11-01"><input name="end" value="2026-11-05">' +
-    '<input name="rate" value="150"><input name="note" value="t">';
+    '<input name="note" value="t">';
   w.handleForm(lf);
   await sleep(60);
   const circleId = Object.keys(rdbData.circles || {})[0];
